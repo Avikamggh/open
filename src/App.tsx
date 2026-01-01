@@ -35,9 +35,8 @@ function App() {
   const { scrollYProgress } = useScroll();
 
   // Parallax effects
+  // Parallax effects
   const heroOpacity = useTransform(scrollYProgress, [0, 0.15], [1, 0]);
-  const phoneScale = useTransform(scrollYProgress, [0, 0.3], [1, 0.8]);
-  const phoneY = useTransform(scrollYProgress, [0, 0.3], [0, -100]);
 
   return (
     <div ref={containerRef} className="min-h-screen bg-[#030014] text-white overflow-x-hidden">
@@ -48,65 +47,70 @@ function App() {
       <Navbar onStartChat={() => setShowChat(true)} />
 
       {/* Hero Section with 3D Phone */}
-      <section className="relative min-h-[200vh]">
-        {/* Sticky Hero Container */}
-        <div className="sticky top-0 h-screen flex items-center justify-center overflow-hidden">
-          <motion.div style={{ opacity: heroOpacity }} className="absolute inset-0 flex flex-col items-center justify-center z-10">
-            {/* Hero Text */}
+      <section className="relative min-h-screen flex flex-col items-center justify-start pt-32 pb-20 overflow-hidden">
+        {/* God Ray / Hero Glow */}
+        <div className="absolute top-[20%] left-1/2 -translate-x-1/2 w-[120%] h-[60%] bg-blue-600/10 rounded-[100%] blur-[160px] pointer-events-none z-0 animate-pulse-slow" />
+
+        <div className="container mx-auto px-4 relative z-10 flex flex-col items-center gap-16">
+
+          {/* Text Content (Centered) */}
+          <motion.div
+            style={{ opacity: heroOpacity }}
+            className="text-center max-w-5xl mx-auto"
+          >
             <motion.div
-              initial={{ opacity: 0, y: 50 }}
+              initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1, delay: 0.2 }}
-              className="text-center mb-8 px-4"
+              transition={{ duration: 0.8 }}
             >
-              <motion.div
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.8 }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-gradient mb-6"
-              >
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border border-blue-500/30 mb-8 hover:scale-105 transition-transform cursor-default">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>
                 </span>
-                <span className="text-sm font-medium text-gray-300">Star is online</span>
-              </motion.div>
+                <span className="text-sm font-medium text-cyan-100 tracking-wide uppercase">System Online v2.0</span>
+              </div>
 
-              <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold mb-6 leading-tight">
-                <span className="block">Meet</span>
-                <span className="gradient-text text-shadow-glow">Star ✦</span>
+              <h1 className="text-5xl sm:text-7xl md:text-8xl font-black mb-8 leading-[1.05] tracking-tight">
+                <span className="block text-white">Cut the noise.</span>
+                <span className="gradient-text">Chase the signal.</span>
               </h1>
-              <p className="text-xl md:text-2xl text-gray-400 max-w-2xl mx-auto">
-                Your <span className="text-white font-semibold">AI Superconnector</span> to investors, VCs, and growth
+
+              <p className="text-xl md:text-2xl text-slate-300 max-w-3xl mx-auto leading-relaxed mb-10">
+                OpenStars - the fastest way to fundraise in 2026! Helping 10,000 founders raise from 15,000+ investors helping grow economy by 20 trillion USD.
               </p>
+
+              <div className="flex flex-col sm:flex-row items-center gap-4 justify-center">
+                <button
+                  onClick={() => document.getElementById('phone-demo')?.scrollIntoView({ behavior: 'smooth' })}
+                  className="btn-primary w-full sm:w-auto group min-w-[200px]"
+                >
+                  <span className="relative z-10 flex items-center justify-center gap-2">
+                    Start Matching
+                    <svg className="w-5 h-5 group-hover:translate-y-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>
+                  </span>
+                </button>
+                <button className="px-8 py-3.5 rounded-full font-semibold text-white border border-white/10 hover:bg-white/5 transition-all w-full sm:w-auto min-w-[200px]">
+                  View Documentation
+                </button>
+              </div>
             </motion.div>
           </motion.div>
 
-          {/* 3D Phone */}
+          {/* Phone Demo (Centered Below) */}
           <motion.div
-            style={{ scale: phoneScale, y: phoneY }}
-            className="relative z-20"
+            id="phone-demo"
+            initial={{ opacity: 0, y: 100 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1, delay: 0.4 }}
+            className="w-full flex justify-center relative perspective-2000"
           >
-            <PhoneChat onComplete={() => setShowChat(false)} />
-          </motion.div>
+            {/* Background Glow for Phone */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80%] h-[80%] bg-blue-600/10 rounded-full blur-[100px] pointer-events-none" />
 
-          {/* Scroll Indicator */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 2 }}
-            className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30"
-          >
-            <motion.div
-              animate={{ y: [0, 10, 0] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="flex flex-col items-center gap-2"
-            >
-              <span className="text-xs text-gray-500 font-mono tracking-widest">SCROLL</span>
-              <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-              </svg>
-            </motion.div>
+            <div className="relative z-20 transform hover:scale-[1.01] transition-transform duration-700">
+              <PhoneChat onComplete={() => setShowChat(false)} />
+            </div>
           </motion.div>
         </div>
       </section>

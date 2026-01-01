@@ -62,15 +62,18 @@ const StarBackground = () => {
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Draw connection lines between nearby stars
-            starsRef.current.forEach((star, i) => {
-                for (let j = i + 1; j < starsRef.current.length; j++) {
-                    const other = starsRef.current[j];
+            // Draw connection lines ONLY for a subset of stars to save CPU (every 2nd star)
+            const stars = starsRef.current;
+            for (let i = 0; i < stars.length; i += 2) {
+                const star = stars[i];
+                for (let j = i + 1; j < stars.length; j += 4) {
+                    const other = stars[j];
                     const dx = star.x - other.x;
                     const dy = star.y - other.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const distSq = dx * dx + dy * dy;
 
-                    if (distance < 100) {
+                    if (distSq < 10000) { // 100 * 100
+                        const distance = Math.sqrt(distSq);
                         ctx.beginPath();
                         ctx.strokeStyle = `rgba(168, 85, 247, ${0.1 * (1 - distance / 100)})`;
                         ctx.lineWidth = 0.5;
@@ -79,20 +82,21 @@ const StarBackground = () => {
                         ctx.stroke();
                     }
                 }
-            });
+            }
 
             // Draw and update stars
-            starsRef.current.forEach((star) => {
+            stars.forEach((star) => {
                 // Pulse opacity
                 star.pulse += star.pulseSpeed;
                 const pulseOpacity = star.opacity + Math.sin(star.pulse) * 0.2;
 
-                // Mouse interaction - subtle repulsion
+                // Mouse interaction - faster distance check
                 const dx = star.x - mouseRef.current.x;
                 const dy = star.y - mouseRef.current.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+                const distSq = dx * dx + dy * dy;
 
-                if (distance < 150) {
+                if (distSq < 22500) { // 150 * 150
+                    const distance = Math.sqrt(distSq);
                     const force = (150 - distance) / 150 * 0.5;
                     star.x += (dx / distance) * force;
                     star.y += (dy / distance) * force;
@@ -108,25 +112,14 @@ const StarBackground = () => {
                 if (star.y < 0) star.y = canvas.height;
                 if (star.y > canvas.height) star.y = 0;
 
-                // Draw star with glow
-                const gradient = ctx.createRadialGradient(
-                    star.x, star.y, 0,
-                    star.x, star.y, star.size * 3
-                );
-                gradient.addColorStop(0, `rgba(255, 255, 255, ${pulseOpacity})`);
-                gradient.addColorStop(0.3, `rgba(168, 85, 247, ${pulseOpacity * 0.5})`);
-                gradient.addColorStop(1, 'transparent');
-
-                ctx.beginPath();
-                ctx.arc(star.x, star.y, star.size * 3, 0, Math.PI * 2);
-                ctx.fillStyle = gradient;
-                ctx.fill();
-
-                // Core
+                // Draw star simplified (skip radial gradient for speed)
                 ctx.beginPath();
                 ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.shadowBlur = 4;
+                ctx.shadowColor = `rgba(168, 85, 247, ${pulseOpacity})`;
                 ctx.fillStyle = `rgba(255, 255, 255, ${pulseOpacity})`;
                 ctx.fill();
+                ctx.shadowBlur = 0; // Reset for next items
             });
 
             animationFrameRef.current = requestAnimationFrame(animate);

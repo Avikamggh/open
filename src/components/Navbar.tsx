@@ -34,7 +34,7 @@ const Navbar = ({ onStartChat }: NavbarProps) => {
                     </motion.div>
                     <div className="flex flex-col">
                         <span className="text-lg sm:text-xl font-bold tracking-tight">
-                            Open<span className="gradient-text">Stars</span>.ai
+                            Open<span className="gradient-text">Stars</span>
                         </span>
                         <span className="text-[8px] font-mono text-gray-500 tracking-[0.2em] hidden sm:block">SUPERCONNECTOR</span>
                     </div>

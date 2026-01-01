@@ -1,20 +1,37 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import emailjs from '@emailjs/browser';
+import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion';
+import { mockInvestors, type Investor } from '../data/mockInvestors';
+import { mockTalents, type Talent } from '../data/mockTalent';
+import { mockStartups, type Startup } from '../data/mockStartups';
 import confetti from 'canvas-confetti';
+import { loadStripe } from '@stripe/stripe-js';
+import emailjs from '@emailjs/browser';
+
+// --- CONFIGURATION ---
+// 1. Get these from https://dashboard.emailjs.com/
+const EMAILJS_SERVICE_ID = 'YOUR_SERVICE_ID';
+const EMAILJS_TEMPLATE_ID = 'YOUR_TEMPLATE_ID';
+const EMAILJS_PUBLIC_KEY = 'YOUR_PUBLIC_KEY';
+
+const STRIPE_PUBLIC_KEY = 'pk_test_your_key_here';
+const LLM_API_ENDPOINT = 'https://your-api-gateway.com/analyze';
 
 interface PhoneChatProps {
     onComplete?: () => void;
     isOverlay?: boolean;
 }
 
-type Step = 'welcome' | 'user-type' | 'need' | 'name' | 'email' | 'phone' | 'linkedin' | 'pitch' | 'sending' | 'success';
+type Step = 'welcome' | 'user-type' | 'goal' | 'website' | 'analyzing' | 'talent-search' | 'investor-focus' | 'investor-stage' | 'traction' | 'results' | 'talent-results' | 'investor-results' | 'connect' | 'unlock-more' | 'payment-processing' | 'email-capture' | 'success';
 
 interface Message {
     id: string;
     sender: 'bot' | 'user';
     text: string;
     options?: Option[];
+    investors?: Investor[];
+    talents?: Talent[];
+    startups?: Startup[];
+    isTyping?: boolean;
 }
 
 interface Option {
@@ -26,53 +43,71 @@ interface Option {
 const userTypeOptions: Option[] = [
     { id: 'founder', label: "I'm a Founder", emoji: '🚀' },
     { id: 'investor', label: "I'm an Investor", emoji: '💼' },
-    { id: 'researcher', label: "AI Researcher/Engineer", emoji: '🔬' },
-    { id: 'talent', label: "Looking for opportunities", emoji: '⭐' },
-    { id: 'other', label: "Other", emoji: '✨' },
+    { id: 'researcher', label: "Researcher / Engineer", emoji: '🔬' },
 ];
 
-const founderNeeds: Option[] = [
-    { id: 'funding', label: 'Investors/VCs', emoji: '💰' },
-    { id: 'cofounder', label: 'Co-founder', emoji: '🤝' },
-    { id: 'team', label: 'Build team', emoji: '👥' },
-    { id: 'advisors', label: 'Advisors', emoji: '🎯' },
+const founderGoals: Option[] = [
+    { id: 'fundraise', label: "Raise Capital", emoji: '💰' },
+    { id: 'hire', label: "Find Top Talent", emoji: '🧙‍♂️' },
+    { id: 'advisors', label: "Seek Advisors", emoji: '🧠' },
 ];
 
-const investorNeeds: Option[] = [
-    { id: 'deal-flow', label: 'Deal flow', emoji: '📊' },
-    { id: 'ai-startups', label: 'AI startups', emoji: '🤖' },
-    { id: 'coinvest', label: 'Co-invest', emoji: '💎' },
+const tractionOptions: Option[] = [
+    { id: 'idea', label: "Idea / Pre-Product", emoji: '💡' },
+    { id: 'mvp', label: "MVP / Beta", emoji: '🛠️' },
+    { id: 'revenue', label: "Generating Revenue", emoji: '💵' },
+    { id: 'scale', label: "Scaling (>1M ARR)", emoji: '📈' },
 ];
 
-const otherNeeds: Option[] = [
-    { id: 'connect', label: 'Network', emoji: '🌐' },
-    { id: 'explore', label: 'Explore', emoji: '🔍' },
+const engineeringFields: Option[] = [
+    { id: 'ai', label: "AI / ML Core", emoji: '🧠' },
+    { id: 'fullstack', label: "Full-Stack Web", emoji: '💻' },
+    { id: 'security', label: "Security / Ops", emoji: '🛡️' },
+    { id: 'mobile', label: "Mobile Dev", emoji: '📱' },
 ];
 
-// EmailJS Configuration - Replace with your actual values
-const EMAILJS_SERVICE_ID = 'YOUR_SERVICE_ID';
-const EMAILJS_TEMPLATE_ID = 'YOUR_TEMPLATE_ID';
-const EMAILJS_PUBLIC_KEY = 'YOUR_PUBLIC_KEY';
+const investorFocusOptions: Option[] = [
+    { id: 'ai', label: "Artificial Intelligence", emoji: '🤖' },
+    { id: 'fintech', label: "Fintech / Payments", emoji: '💳' },
+    { id: 'bio', label: "Biotech / Health", emoji: '🧬' },
+    { id: 'web3', label: "Web3 / Crypto", emoji: '⛓️' },
+];
+
+const investorStageOptions: Option[] = [
+    { id: 'seed', label: "Pre-Seed / Seed", emoji: '🐣' },
+    { id: 'early', label: "Series A / B", emoji: '📈' },
+    { id: 'late', label: "Late Stage / Growth", emoji: '🏢' },
+];
 
 const PhoneChat = ({ onComplete: _onComplete, isOverlay = false }: PhoneChatProps) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [currentStep, setCurrentStep] = useState<Step>('welcome');
     const [isTyping, setIsTyping] = useState(false);
-    const [formData, setFormData] = useState({
-        userType: '',
-        need: '',
-        name: '',
-        email: '',
-        phone: '',
-        linkedin: '',
-        pitch: '',
-    });
     const [inputValue, setInputValue] = useState('');
     const [currentTime, setCurrentTime] = useState('');
+    const [isPremiumUnlocked, setIsPremiumUnlocked] = useState(false);
+
+    // 3D Motion Values
+    const x = useMotionValue(0);
+    const y = useMotionValue(0);
+    const rotateX = useTransform(y, [-100, 100], [5, -5]);
+    const rotateY = useTransform(x, [-100, 100], [-5, 5]);
+
+    const [sessionData, setSessionData] = useState({
+        role: '',
+        goal: '',
+        website: '',
+        industry: '',
+        traction: '',
+        focus: '',
+        stage: '',
+        email: ''
+    });
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const chatContainerRef = useRef<HTMLDivElement>(null);
+    const phoneRef = useRef<HTMLDivElement>(null);
 
     // Update time
     useEffect(() => {
@@ -87,35 +122,103 @@ const PhoneChat = ({ onComplete: _onComplete, isOverlay = false }: PhoneChatProp
 
     const scrollToBottom = () => {
         if (chatContainerRef.current) {
-            chatContainerRef.current.scrollTo({
-                top: chatContainerRef.current.scrollHeight,
-                behavior: 'smooth'
-            });
+            setTimeout(() => {
+                chatContainerRef.current?.scrollTo({
+                    top: chatContainerRef.current.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }, 100);
         }
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!isOverlay && phoneRef.current) {
+            const rect = phoneRef.current.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            x.set(e.clientX - centerX);
+            y.set(e.clientY - centerY);
+        }
+    };
+
+    const handleMouseLeave = () => {
+        x.set(0);
+        y.set(0);
     };
 
     useEffect(() => {
         scrollToBottom();
     }, [messages, isTyping]);
 
+    // Initial greeting
     useEffect(() => {
-        // Initial greeting after mount
         const timer = setTimeout(() => {
             addBotMessage(
-                "Hey! ✨ I'm Star, your AI superconnector.\n\nI help founders connect with investors, VCs, and the right people to scale.",
+                "Cut the noise. Chase the signal. 📡\n\nOpenStars - the fastest way to fundraise in 2026!\n\nHelping 10,000 founders raise from 15,000+ investors helping grow economy by 20 trillion USD.",
                 undefined,
                 () => {
                     setTimeout(() => {
                         setCurrentStep('user-type');
-                        addBotMessage("How would you describe yourself?", userTypeOptions);
-                    }, 500);
+                        addBotMessage("To begin your journey with OpenStars, please identify yourself:", userTypeOptions);
+                    }, 1200);
                 }
             );
-        }, 800);
+        }, 1200);
         return () => clearTimeout(timer);
     }, []);
 
-    const addBotMessage = (text: string, options?: Option[], callback?: () => void) => {
+    // LLM API Connection Simulation
+    const callLLMAnalysis = async (url: string) => {
+        try {
+            console.log(`Connecting to LLM at: ${LLM_API_ENDPOINT}`);
+            await new Promise(r => setTimeout(r, 2000));
+            return url.toLowerCase().includes('ai') ? 'GenAI Infrastructure' : 'Enterprise SaaS';
+        } catch (e) {
+            return 'Technology & Infrastructure';
+        }
+    };
+
+    // Stripe Payment Initiation
+    const handleStripePayment = async () => {
+        setCurrentStep('payment-processing');
+        addBotMessage("Opening secure Stripe gateway... 💳");
+
+        try {
+            const stripe = await loadStripe(STRIPE_PUBLIC_KEY);
+            if (!stripe) throw new Error("Stripe load failed");
+
+            setTimeout(() => {
+                setIsPremiumUnlocked(true);
+                addBotMessage("Payment Confirmed! ✅\n\nAccess granted to Premium Database Pool. Searching for your additional 3 matches...");
+
+                setTimeout(() => {
+                    if (sessionData.role === 'founder') {
+                        const extraMatches = mockInvestors.sort(() => 0.5 - Math.random()).slice(0, 3);
+                        addBotMessage("Encryption bypassed. Found 3 more high-conviction matches:", undefined, () => {
+                            setTimeout(() => {
+                                setCurrentStep('email-capture');
+                                addBotMessage("Shall we bundle these matches into a single introduction package? Enter your email to proceed.");
+                            }, 2000);
+                        }, extraMatches);
+                    } else {
+                        const extraStartups = mockStartups.slice(3, 6);
+                        addBotMessage("Premium Feed Unlocked. Found 3 more high-growth startups:", undefined, () => {
+                            setTimeout(() => {
+                                setCurrentStep('email-capture');
+                                addBotMessage("Shall we prepare the due diligence bundle for these companies? Enter your email to proceed.");
+                            }, 2000);
+                        }, undefined, undefined, extraStartups);
+                    }
+                }, 1500);
+            }, 3000);
+
+        } catch (err) {
+            addBotMessage("Secure Link Failed. Falling back to basic results.");
+            setCurrentStep('connect');
+        }
+    };
+
+    const addBotMessage = (text: string, options?: Option[], callback?: () => void, investors?: Investor[], talents?: Talent[], startups?: Startup[]) => {
         setIsTyping(true);
         setTimeout(() => {
             setIsTyping(false);
@@ -126,10 +229,13 @@ const PhoneChat = ({ onComplete: _onComplete, isOverlay = false }: PhoneChatProp
                     sender: 'bot',
                     text,
                     options,
+                    investors,
+                    talents,
+                    startups
                 },
             ]);
             if (callback) setTimeout(callback, 300);
-        }, 600 + Math.random() * 400);
+        }, 800 + Math.random() * 600);
     };
 
     const addUserMessage = (text: string) => {
@@ -144,62 +250,137 @@ const PhoneChat = ({ onComplete: _onComplete, isOverlay = false }: PhoneChatProp
     };
 
     const handleOptionSelect = (option: Option) => {
+        if (messages.length > 0 && messages[messages.length - 1].options === undefined) return;
+
+        setMessages(prev => prev.map(m => m.id === prev[prev.length - 1].id ? { ...m, options: undefined } : m));
         addUserMessage(`${option.emoji} ${option.label}`);
 
         if (currentStep === 'user-type') {
-            setFormData((prev) => ({ ...prev, userType: option.id }));
-            setCurrentStep('need');
+            setSessionData(prev => ({ ...prev, role: option.id }));
+            if (option.id === 'founder') {
+                setCurrentStep('goal');
+                setTimeout(() => {
+                    addBotMessage("Welcome, Founder. 🚀\n\nOur network is optimized for speed.\n\nWhat is your primary mission today?", founderGoals);
+                }, 600);
+            } else if (option.id === 'investor') {
+                setCurrentStep('investor-focus');
+                setTimeout(() => {
+                    addBotMessage("Welcome to the Syndicate. 💼\n\nWe source high-alpha founders directly from top engineering hubs.\n\nWhat is your primary investment focus?", investorFocusOptions);
+                }, 600);
+            } else {
+                setCurrentStep('success');
+                setTimeout(() => {
+                    addBotMessage("Our Network Portal is currently in private beta for your role.\n\nWe've added you to the priority access list. 🌟");
+                }, 600);
+            }
+        } else if (currentStep === 'investor-focus') {
+            setSessionData(prev => ({ ...prev, focus: option.label }));
+            setCurrentStep('investor-stage');
+            setTimeout(() => {
+                addBotMessage(`Acknowledged. ${option.emoji}\n\nAt what stage do you typically deploy capital?`, investorStageOptions);
+            }, 600);
+        } else if (currentStep === 'investor-stage') {
+            setSessionData(prev => ({ ...prev, stage: option.label }));
+            setCurrentStep('investor-results');
+            setTimeout(() => {
+                addBotMessage(`Filtering the 10,000+ startup database for ${sessionData.focus} at ${option.label}... ⚡`);
+                setTimeout(() => {
+                    const matches = mockStartups.slice(0, 3);
+                    addBotMessage(
+                        `Search Complete. Found ${matches.length} high-signal startups currently fundraising:`,
+                        undefined,
+                        () => {
+                            setTimeout(() => {
+                                setCurrentStep('unlock-more');
+                                addBotMessage("Want to unlock 3 more 'Stealth' startups in this category for just $3?", [
+                                    { id: 'pay', label: "Unlock More ($3)", emoji: '💳' },
+                                    { id: 'no', label: "Just these 3", emoji: '⚡' }
+                                ]);
+                            }, 2500);
+                        },
+                        undefined,
+                        undefined,
+                        matches
+                    );
+                }, 2000);
+            }, 600);
+        } else if (currentStep === 'goal') {
+            setSessionData(prev => ({ ...prev, goal: option.id }));
+            if (option.id === 'fundraise') {
+                setCurrentStep('website');
+                setTimeout(() => {
+                    addBotMessage("Initiating Capital Deployment Protocols. 💎\n\nI'm syncing with 15,000+ active VC portfolios.\n\nPlease provide your Startup URL or LinkedIn for instant analysis.");
+                    setTimeout(() => inputRef.current?.focus(), 800);
+                }, 600);
+            } else if (option.id === 'hire') {
+                setCurrentStep('talent-search');
+                setTimeout(() => {
+                    addBotMessage("Connecting to the Engineering Corps. 🧙‍♂️\n\nOur talent pool consists of 'Founding Engineer' level experts.\n\nWhich department are you looking for?", engineeringFields);
+                }, 600);
+            }
+        } else if (currentStep === 'talent-search') {
+            setCurrentStep('talent-results');
+            setTimeout(() => {
+                addBotMessage(`Searching for top-tier ${option.label} talent... ⚡`);
+                setTimeout(() => {
+                    const matches = mockTalents.slice(0, 3);
+                    addBotMessage(
+                        `Found ${matches.length} curated matches.`,
+                        undefined,
+                        () => {
+                            setTimeout(() => {
+                                setCurrentStep('unlock-more');
+                                addBotMessage("Want to unlock 3 more names from our elite talent pool for just $3?", [
+                                    { id: 'pay', label: "Unlock 3 More", emoji: '💳' },
+                                    { id: 'no', label: "Just these 3", emoji: '⚡' }
+                                ]);
+                            }, 1500);
+                        },
+                        undefined,
+                        matches
+                    );
+                }, 2000);
+            }, 600);
+        } else if (currentStep === 'unlock-more') {
+            if (option.id === 'pay') {
+                handleStripePayment();
+            } else {
+                setCurrentStep('email-capture');
+                addBotMessage("Understood. Enter your email to receive intro details for these matches.");
+            }
+        } else if (currentStep === 'traction') {
+            setSessionData(prev => ({ ...prev, traction: option.label }));
+            setCurrentStep('results');
 
             setTimeout(() => {
-                let needs: Option[];
-                let message: string;
+                addBotMessage(`Acknowledged. ${option.emoji}\n\nCalculating compatibility scores for ${sessionData.industry} investors...`);
 
-                if (option.id === 'founder') {
-                    needs = founderNeeds;
-                    message = "Love it! 🔥 What are you looking for?";
-                } else if (option.id === 'investor') {
-                    needs = investorNeeds;
-                    message = "Great! What's most valuable for you?";
-                } else {
-                    needs = otherNeeds;
-                    message = "Awesome! What brings you here?";
-                }
-
-                addBotMessage(message, needs);
-            }, 300);
-        } else if (currentStep === 'need') {
-            setFormData((prev) => ({ ...prev, need: option.id }));
-            setCurrentStep('name');
-
-            setTimeout(() => {
-                addBotMessage("Perfect! Let's get you connected.\n\nWhat's your full name?");
-                setTimeout(() => inputRef.current?.focus(), 800);
-            }, 300);
-        }
-    };
-
-    const sendEmail = async (data: typeof formData) => {
-        try {
-            await emailjs.send(
-                EMAILJS_SERVICE_ID,
-                EMAILJS_TEMPLATE_ID,
-                {
-                    user_type: data.userType,
-                    need: data.need,
-                    name: data.name,
-                    email: data.email,
-                    phone: data.phone,
-                    linkedin: data.linkedin,
-                    pitch: data.pitch,
-                    submitted_at: new Date().toISOString(),
-                },
-                EMAILJS_PUBLIC_KEY
-            );
-            return true;
-        } catch (error) {
-            console.error('EmailJS Error:', error);
-            // For demo, we'll still show success
-            return true;
+                setTimeout(() => {
+                    const matches = mockInvestors.sort(() => 0.5 - Math.random()).slice(0, 3);
+                    addBotMessage(
+                        `Analysis Complete. Found ${matches.length} matches with >95% confidence:`,
+                        undefined,
+                        () => {
+                            setTimeout(() => {
+                                setCurrentStep('unlock-more');
+                                addBotMessage("Unlock 3 more high-conviction investors from our premium database for only $3?", [
+                                    { id: 'pay', label: "Unlock More ($3)", emoji: '💰' },
+                                    { id: 'no', label: "Just these 3", emoji: '⚡' }
+                                ]);
+                            }, 2500);
+                        },
+                        matches
+                    );
+                }, 2000);
+            }, 600);
+        } else if (currentStep === 'connect') {
+            if (option.id === 'yes') {
+                setCurrentStep('email-capture');
+                setTimeout(() => {
+                    addBotMessage("Affirmative. 📨\n\nPlease provide your secure email uplink to receive the connection details.");
+                    setTimeout(() => inputRef.current?.focus(), 800);
+                }, 600);
+            }
         }
     };
 
@@ -209,347 +390,178 @@ const PhoneChat = ({ onComplete: _onComplete, isOverlay = false }: PhoneChatProp
 
         const value = inputValue.trim();
         setInputValue('');
+        addUserMessage(value);
 
-        if (currentStep === 'name') {
-            addUserMessage(value);
-            setFormData((prev) => ({ ...prev, name: value }));
-            setCurrentStep('email');
-            setTimeout(() => {
-                addBotMessage(`Nice, ${value.split(' ')[0]}! 👋\n\nYour email?`);
-                setTimeout(() => inputRef.current?.focus(), 800);
-            }, 300);
-        } else if (currentStep === 'email') {
-            addUserMessage(value);
-            setFormData((prev) => ({ ...prev, email: value }));
-            setCurrentStep('phone');
-            setTimeout(() => {
-                addBotMessage("Got it! 📧\n\nPhone? (for warm intros)");
-                setTimeout(() => inputRef.current?.focus(), 800);
-            }, 300);
-        } else if (currentStep === 'phone') {
-            addUserMessage(value);
-            setFormData((prev) => ({ ...prev, phone: value }));
-            setCurrentStep('linkedin');
-            setTimeout(() => {
-                addBotMessage("Perfect! 📱\n\nLinkedIn URL?");
-                setTimeout(() => inputRef.current?.focus(), 800);
-            }, 300);
-        } else if (currentStep === 'linkedin') {
-            addUserMessage(value);
-            setFormData((prev) => ({ ...prev, linkedin: value }));
-            setCurrentStep('pitch');
-            setTimeout(() => {
-                addBotMessage("Almost there! 🎯\n\nOne-liner about what you're building?");
-                setTimeout(() => inputRef.current?.focus(), 800);
-            }, 300);
-        } else if (currentStep === 'pitch') {
-            addUserMessage(value);
-            const finalData = { ...formData, pitch: value };
-            setFormData(finalData);
-            setCurrentStep('sending');
+        if (currentStep === 'website') {
+            setCurrentStep('analyzing');
+            setSessionData(prev => ({ ...prev, website: value }));
+
+            addBotMessage("Parsing metadata via AI Link... 🛰️");
+            const inferred = await callLLMAnalysis(value);
 
             setTimeout(() => {
-                addBotMessage("Submitting your info... ⏳");
-            }, 300);
+                setSessionData(prev => ({ ...prev, industry: inferred }));
+                setCurrentStep('traction');
+                addBotMessage(
+                    `Deep Scan Successful. \n\nIndustry: ${inferred} 🧬\n\nWhat is your current traction status?`,
+                    tractionOptions
+                );
+            }, 1000);
+        } else if (currentStep === 'email-capture') {
+            setSessionData(prev => ({ ...prev, email: value }));
+            setCurrentStep('success');
+            addBotMessage("Encrypting and transmitting... 📡");
 
-            // Send email
-            const success = await sendEmail(finalData);
+            // EMAILJS INTEGRATION
+            if (EMAILJS_SERVICE_ID !== 'YOUR_SERVICE_ID') {
+                const templateParams = {
+                    user_email: value,
+                    user_role: sessionData.role,
+                    user_goal: sessionData.goal,
+                    user_website: sessionData.website,
+                    user_industry: sessionData.industry,
+                    user_traction: sessionData.traction,
+                    user_focus: sessionData.focus,
+                    user_stage: sessionData.stage,
+                    is_premium: isPremiumUnlocked ? 'Yes' : 'No'
+                };
+
+                emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, templateParams, EMAILJS_PUBLIC_KEY)
+                    .then(() => console.log('Email sent successfully!'))
+                    .catch((err) => console.error('Email failed:', err));
+            }
 
             setTimeout(() => {
-                if (success) {
-                    setCurrentStep('success');
-                    confetti({
-                        particleCount: 150,
-                        spread: 100,
-                        origin: { y: 0.6 },
-                        colors: ['#8b5cf6', '#ec4899', '#06b6d4'],
-                    });
-                    addBotMessage(
-                        "You're in! 🚀✨\n\nWe'll reach out within 24-48hrs with your first introductions.\n\nWelcome to OpenStars! 🌟"
-                    );
-                }
+                addBotMessage("Transmission Complete. ✅\n\nWe will contact you shortly and will surely help you! 🚀\n\nOpenStars - Powering the next generation of unicorns.");
+                confetti({ particleCount: 200, spread: 70, origin: { y: 0.7 } });
+                try {
+                    const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-software-interface-start-2574.mp3');
+                    audio.volume = 0.5;
+                    audio.play().catch(() => { });
+                } catch (e) { }
             }, 1500);
         }
     };
 
     const getInputPlaceholder = () => {
-        switch (currentStep) {
-            case 'name': return 'Your name...';
-            case 'email': return 'email@example.com';
-            case 'phone': return '+1 (555) 000-0000';
-            case 'linkedin': return 'linkedin.com/in/...';
-            case 'pitch': return 'Building AI for...';
-            default: return 'Type here...';
-        }
-    };
-
-    const getInputType = () => {
-        if (currentStep === 'email') return 'email';
-        if (currentStep === 'phone') return 'tel';
-        return 'text';
+        if (currentStep === 'website') return 'https://your-startup.com';
+        if (currentStep === 'email-capture') return 'founder@company.com';
+        return 'Enter secure data...';
     };
 
     return (
         <motion.div
-            initial={{ opacity: 0, y: 30, rotateX: 15 }}
-            animate={{ opacity: 1, y: 0, rotateX: 0 }}
-            transition={{ duration: 1, delay: 0.5, type: 'spring' }}
-            className="relative"
-            style={{ perspective: '1000px' }}
+            ref={phoneRef}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            style={{ rotateX, rotateY, transformStyle: 'preserve-3d', touchAction: 'manipulation' }}
+            initial={{ opacity: 0, y: 30, rotateX: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative w-full flex justify-center perspective-1000 my-8 sm:my-0 cursor-default"
         >
-            {/* Phone Frame */}
-            <div className={`relative ${isOverlay ? 'w-full max-w-[380px]' : 'w-[320px] sm:w-[360px] md:w-[380px]'} mx-auto`}>
-                {/* Phone Outer Frame with Glow */}
-                <div className="absolute -inset-2 bg-gradient-to-r from-violet-600 via-fuchsia-600 to-cyan-500 rounded-[56px] blur-xl opacity-40 animate-pulse-slow" />
+            <div className={`relative ${isOverlay ? 'w-full max-w-[420px]' : 'w-[320px] sm:w-[380px] md:w-[400px]'} h-[750px] transition-all transform hover:scale-[1.01] duration-500`}>
+                <div className="absolute inset-0 bg-blue-900/20 rounded-[3rem] blur-xl transform translate-z-[-20px]" />
+                <div className="absolute inset-0 bg-black rounded-[3rem] shadow-2xl transform translate-z-[-10px]" />
+                <div className="absolute -inset-1 bg-gradient-to-tr from-blue-600/60 via-cyan-500/60 to-indigo-600/60 rounded-[3.5rem] blur-2xl opacity-50 animate-pulse-slow" />
 
-                {/* Phone Body */}
-                <div className="relative bg-gradient-to-b from-gray-800 to-gray-900 rounded-[48px] p-2 shadow-2xl border border-gray-700/50">
-                    {/* Phone Inner Bezel */}
-                    <div className="relative bg-black rounded-[40px] overflow-hidden">
+                <div className="relative h-full bg-[#020617] rounded-[3rem] p-3 shadow-2xl border border-white/10 ring-1 ring-white/5 overflow-hidden backdrop-blur-3xl">
+                    <div className="relative h-full bg-[#0b1121] rounded-[2.5rem] overflow-hidden flex flex-col shadow-inner shadow-black/50">
                         {/* Dynamic Island */}
-                        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-black px-4 py-1.5 rounded-full">
-                            <div className="w-2 h-2 rounded-full bg-gray-800" />
-                            <div className="w-12 h-4 rounded-full bg-gray-900" />
+                        <div className="absolute top-0 inset-x-0 h-14 bg-gradient-to-b from-[#020617] to-transparent z-20 pointer-events-none flex justify-center pt-2">
+                            <div className="w-32 h-9 bg-black rounded-full flex items-center justify-center gap-3 px-3 border border-white/10 shadow-lg shadow-blue-500/20 backdrop-blur-md">
+                                <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                <div className="flex-1 flex justify-center"><div className="w-16 h-1 bg-white/10 rounded-full overflow-hidden"><div className="h-full w-1/2 bg-blue-500/50 animate-shimmer" /></div></div>
+                                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse delay-75" />
+                            </div>
                         </div>
 
                         {/* Status Bar */}
-                        <div className="absolute top-0 left-0 right-0 z-40 flex items-center justify-between px-8 pt-3 pb-1 text-white text-xs font-medium">
+                        <div className="flex justify-between items-center px-6 pt-3 pb-2 text-[10px] font-medium text-slate-400 z-10 w-full select-none">
                             <span>{currentTime}</span>
-                            <div className="flex items-center gap-1.5">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
-                                </svg>
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z" />
-                                </svg>
+                            <div className="flex gap-1.5">
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5z" /></svg>
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z" /></svg>
                             </div>
                         </div>
 
-                        {/* Screen Content */}
-                        <div className="h-[580px] sm:h-[620px] bg-gradient-to-b from-[#0a0a1a] via-[#0f0f2a] to-[#0a0a1a] pt-12">
-                            {/* App Header */}
-                            <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-black/30 backdrop-blur-xl">
-                                <div className="flex items-center gap-3">
-                                    <div className="relative">
-                                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
-                                            <span className="text-lg">✦</span>
-                                        </div>
-                                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-[#0a0a1a]" />
+                        {/* Chat Header */}
+                        <div className="px-5 py-4 border-b border-white/5 bg-[#0b1121]/80 backdrop-blur-xl flex items-center justify-between z-10 sticky top-0">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-400 p-[1.5px]"><div className="w-full h-full rounded-full bg-[#0b1121] flex items-center justify-center font-bold text-cyan-400 text-lg">✦</div></div>
+                                <div>
+                                    <h3 className="font-semibold text-white text-sm">OpenStars</h3>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">System Online</span>
+                                        {isPremiumUnlocked && <span className="text-[8px] bg-cyan-500/20 text-cyan-400 px-1 rounded-sm font-black border border-cyan-400/20 animate-pulse">PREMIUM</span>}
                                     </div>
-                                    <div>
-                                        <h3 className="font-semibold text-white text-sm">Star</h3>
-                                        <p className="text-[10px] text-green-400 flex items-center gap-1">
-                                            <span className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />
-                                            Online
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <button className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center">
-                                        <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                                        </svg>
-                                    </button>
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Chat Messages */}
-                            <div
-                                ref={chatContainerRef}
-                                className="h-[calc(100%-140px)] overflow-y-auto px-4 py-4 space-y-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
-                            >
-                                <AnimatePresence mode="popLayout">
-                                    {messages.map((msg) => (
-                                        <motion.div
-                                            key={msg.id}
-                                            initial={{ opacity: 0, y: 15, scale: 0.95 }}
-                                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                                            transition={{ type: 'spring', damping: 25 }}
-                                            className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                                        >
-                                            <div className={`max-w-[85%] ${msg.sender === 'user' ? '' : 'flex gap-2'}`}>
-                                                {msg.sender === 'bot' && (
-                                                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center flex-shrink-0 text-[10px]">
-                                                        ✦
+                        <div ref={chatContainerRef} data-lenis-prevent className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin scroll-smooth relative">
+                            <AnimatePresence mode="popLayout">
+                                {messages.map((msg) => (
+                                    <motion.div key={msg.id} initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} relative z-10`}>
+                                        <div className={`max-w-[85%] ${msg.sender === 'user' ? '' : 'flex flex-col gap-2'}`}>
+                                            <div className={`px-4 py-3 rounded-2xl text-[13px] relative shadow-lg backdrop-blur-md ${msg.sender === 'user' ? 'bg-gradient-to-br from-blue-600 to-cyan-600 text-white rounded-tr-sm' : 'bg-[#1e293b]/80 text-slate-200 rounded-tl-sm border border-white/5'}`}>{msg.text}</div>
+                                            {msg.options && <div className="grid grid-cols-1 gap-2 mt-2">
+                                                {msg.options.map((opt) => (
+                                                    <button key={opt.id} onClick={() => handleOptionSelect(opt)} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#1e293b]/50 hover:bg-blue-600/20 border border-white/5 hover:border-cyan-500/40 text-left transition-all group">
+                                                        <span className="text-lg group-hover:scale-125 transition-transform">{opt.emoji}</span><span className="text-[11px] font-bold text-slate-300 group-hover:text-white">{opt.label}</span>
+                                                        <svg className="w-3 h-3 ml-auto text-slate-600 group-hover:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                                    </button>
+                                                ))}
+                                            </div>}
+                                            {msg.investors && <div className="space-y-3 mt-3">
+                                                {msg.investors.map((inv) => (
+                                                    <div key={inv.id} className="bg-[#1e293b]/90 rounded-xl p-4 border border-white/10 hover:border-cyan-400/40 transition-all shadow-xl">
+                                                        <div className="flex justify-between items-start mb-1 text-white font-bold text-sm">{inv.name} <span className="text-cyan-400 text-[9px] uppercase font-black">{inv.firm}</span></div>
+                                                        <div className="text-[10px] text-slate-400 leading-tight">“{inv.reason}”</div>
                                                     </div>
-                                                )}
-                                                <div>
-                                                    <div
-                                                        className={`px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed ${msg.sender === 'user'
-                                                            ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white rounded-tr-sm'
-                                                            : 'bg-white/10 backdrop-blur-sm text-gray-100 rounded-tl-sm border border-white/5'
-                                                            }`}
-                                                    >
-                                                        {msg.text}
+                                                ))}
+                                            </div>}
+                                            {msg.talents && <div className="space-y-3 mt-3">
+                                                {msg.talents.map((tal) => (
+                                                    <div key={tal.id} className="bg-[#1e293b]/90 rounded-xl p-4 border border-blue-500/20 hover:border-cyan-400/40 transition-all shadow-xl">
+                                                        <div className="flex justify-between items-start mb-1 text-white font-bold text-sm">{tal.name} <span className="text-blue-400 text-[9px] uppercase font-bold">Ex-{tal.company}</span></div>
+                                                        <div className="text-[10px] text-slate-400 leading-tight mb-2">{tal.bio}</div>
+                                                        <div className="flex gap-1 flex-wrap">{tal.skills.slice(0, 3).map(s => <span key={s} className="px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-[7px] text-cyan-300 border border-cyan-500/20">{s}</span>)}</div>
                                                     </div>
-
-                                                    {/* Options */}
-                                                    {msg.options && (
-                                                        <div className="mt-2 space-y-1.5">
-                                                            {msg.options.map((option, index) => (
-                                                                <motion.button
-                                                                    key={option.id}
-                                                                    initial={{ opacity: 0, x: -10 }}
-                                                                    animate={{ opacity: 1, x: 0 }}
-                                                                    transition={{ delay: index * 0.1 }}
-                                                                    whileTap={{ scale: 0.98 }}
-                                                                    onClick={() => handleOptionSelect(option)}
-                                                                    className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-violet-500/50 text-left transition-all group"
-                                                                >
-                                                                    <span className="text-base group-hover:scale-110 transition-transform">{option.emoji}</span>
-                                                                    <span className="text-xs font-medium text-gray-200 group-hover:text-white flex-1">
-                                                                        {option.label}
-                                                                    </span>
-                                                                    <svg
-                                                                        className="w-3 h-3 text-gray-600 group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all"
-                                                                        fill="none"
-                                                                        viewBox="0 0 24 24"
-                                                                        stroke="currentColor"
-                                                                    >
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                                                    </svg>
-                                                                </motion.button>
-                                                            ))}
+                                                ))}
+                                            </div>}
+                                            {msg.startups && <div className="space-y-3 mt-3">
+                                                {msg.startups.map((start) => (
+                                                    <div key={start.id} className="bg-[#1e293b]/90 rounded-xl p-4 border border-violet-500/20 hover:border-violet-400/40 transition-all shadow-xl">
+                                                        <div className="flex justify-between items-start mb-1 text-white font-bold text-sm">{start.name} <span className="text-violet-400 text-[9px] uppercase font-bold">{start.industry}</span></div>
+                                                        <div className="text-[10px] text-slate-400 leading-tight mb-2">{start.description}</div>
+                                                        <div className="flex justify-between items-center text-[10px]">
+                                                            <span className="text-slate-500">Founded by <span className="text-white">{start.founder}</span></span>
+                                                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">{start.traction}</span>
                                                         </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    ))}
-                                </AnimatePresence>
-
-                                {/* Typing Indicator */}
-                                {isTyping && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        className="flex gap-2"
-                                    >
-                                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center text-[10px]">
-                                            ✦
-                                        </div>
-                                        <div className="px-4 py-2.5 rounded-2xl rounded-tl-sm bg-white/10 border border-white/5">
-                                            <div className="flex gap-1">
-                                                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                                                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                                                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                                            </div>
+                                                    </div>
+                                                ))}
+                                            </div>}
                                         </div>
                                     </motion.div>
-                                )}
-
-                                {/* Success Actions */}
-                                {currentStep === 'success' && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: 0.5 }}
-                                        className="space-y-2 mt-4"
-                                    >
-                                        <a
-                                            href="https://discord.gg/agihouse"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-[#5865F2]/20 border border-[#5865F2]/50 text-[#5865F2] hover:bg-[#5865F2]/30 transition-colors text-sm font-medium"
-                                        >
-                                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                                <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
-                                            </svg>
-                                            Join AGI House Discord
-                                        </a>
-                                        <a
-                                            href="https://chat.whatsapp.com/your-link"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-[#25D366]/20 border border-[#25D366]/50 text-[#25D366] hover:bg-[#25D366]/30 transition-colors text-sm font-medium"
-                                        >
-                                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                                            </svg>
-                                            Join WhatsApp Community
-                                        </a>
-                                    </motion.div>
-                                )}
-
-                                <div ref={messagesEndRef} />
-                            </div>
-
-                            {/* Input Area */}
-                            <div className="absolute bottom-0 left-0 right-0 p-3 bg-black/50 backdrop-blur-xl border-t border-white/5">
-                                {currentStep !== 'welcome' && currentStep !== 'user-type' && currentStep !== 'need' && currentStep !== 'sending' && currentStep !== 'success' && (
-                                    <form onSubmit={handleInputSubmit} className="flex gap-2">
-                                        <input
-                                            ref={inputRef}
-                                            type={getInputType()}
-                                            value={inputValue}
-                                            onChange={(e) => setInputValue(e.target.value)}
-                                            placeholder={getInputPlaceholder()}
-                                            className="flex-1 bg-white/10 hover:bg-white/15 focus:bg-white/15 border border-white/10 focus:border-violet-500 rounded-full px-4 py-3 outline-none transition-all text-sm text-white placeholder-gray-500"
-                                        />
-                                        <motion.button
-                                            type="submit"
-                                            whileHover={{ scale: 1.05 }}
-                                            whileTap={{ scale: 0.95 }}
-                                            className="w-11 h-11 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white flex items-center justify-center shadow-lg shadow-violet-600/30"
-                                        >
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                                            </svg>
-                                        </motion.button>
-                                    </form>
-                                )}
-
-                                {(currentStep === 'welcome' || currentStep === 'user-type' || currentStep === 'need') && (
-                                    <div className="h-11 flex items-center justify-center text-xs text-gray-500">
-                                        Select an option above ☝️
-                                    </div>
-                                )}
-
-                                {currentStep === 'sending' && (
-                                    <div className="h-11 flex items-center justify-center gap-2 text-xs text-gray-400">
-                                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                        Sending...
-                                    </div>
-                                )}
-
-                                {currentStep === 'success' && (
-                                    <div className="h-11 flex items-center justify-center text-xs text-green-400">
-                                        ✓ Submitted successfully!
-                                    </div>
-                                )}
-                            </div>
+                                ))}
+                            </AnimatePresence>
+                            {isTyping && <div className="flex gap-2 p-2"><div className="w-8 h-8 rounded-full bg-blue-600/20 flex items-center justify-center text-cyan-400 border border-cyan-400/20">✦</div><div className="bg-[#1e293b]/70 px-4 py-2 rounded-2xl rounded-tl-none border border-white/5 flex gap-1 items-center h-8 shadow-lg"><span className="w-1 h-1 bg-cyan-400 rounded-full animate-bounce"></span><span className="w-1 h-1 bg-cyan-400 rounded-full animate-bounce delay-75"></span><span className="w-1 h-1 bg-cyan-400 rounded-full animate-bounce delay-150"></span></div></div>}
+                            <div ref={messagesEndRef} />
                         </div>
 
-                        {/* Home Indicator */}
-                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-32 h-1 bg-white/20 rounded-full" />
+                        <div className="p-4 pt-3 bg-gradient-to-t from-[#0b1121] via-[#0b1121] to-transparent z-20">
+                            {(currentStep === 'website' || currentStep === 'email-capture') ? (
+                                <form onSubmit={handleInputSubmit} className="relative flex gap-2 items-center bg-[#1e293b] border border-white/10 rounded-full px-1.5 py-1.5 focus-within:ring-2 focus-within:ring-cyan-500/20 shadow-2xl">
+                                    <input ref={inputRef} type={currentStep === 'email-capture' ? "email" : "text"} value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder={getInputPlaceholder()} className="flex-1 bg-transparent px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none" />
+                                    <button type="submit" className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center text-white active:scale-90 transition-all"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+                                </form>
+                            ) : (
+                                <div className="h-14 flex items-center justify-center text-[10px] text-slate-500 font-bold tracking-widest uppercase">Secure Demo Interface</div>
+                            )}
+                        </div>
+                        <div className="h-6 flex justify-center items-center bg-[#0b1121]/90"><div className="w-32 h-1 bg-slate-800 rounded-full" /></div>
                     </div>
                 </div>
-
-                {/* Floating Elements Around Phone */}
-                <motion.div
-                    animate={{ y: [0, -10, 0], rotate: [0, 5, 0] }}
-                    transition={{ duration: 4, repeat: Infinity }}
-                    className="absolute -top-8 -right-8 w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600/30 to-transparent backdrop-blur-sm border border-violet-500/20 flex items-center justify-center"
-                >
-                    <span className="text-2xl">🚀</span>
-                </motion.div>
-                <motion.div
-                    animate={{ y: [0, 10, 0], rotate: [0, -5, 0] }}
-                    transition={{ duration: 5, repeat: Infinity }}
-                    className="absolute -bottom-4 -left-8 w-14 h-14 rounded-2xl bg-gradient-to-br from-fuchsia-600/30 to-transparent backdrop-blur-sm border border-fuchsia-500/20 flex items-center justify-center"
-                >
-                    <span className="text-xl">💼</span>
-                </motion.div>
-                <motion.div
-                    animate={{ y: [0, -8, 0], x: [0, 5, 0] }}
-                    transition={{ duration: 6, repeat: Infinity }}
-                    className="absolute top-1/2 -right-12 w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-600/30 to-transparent backdrop-blur-sm border border-cyan-500/20 flex items-center justify-center"
-                >
-                    <span className="text-lg">💰</span>
-                </motion.div>
             </div>
         </motion.div>
     );

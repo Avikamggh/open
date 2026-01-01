@@ -22,7 +22,7 @@ const Footer = () => {
                             <span className="text-lg">✦</span>
                         </div>
                         <span className="text-xl font-bold">
-                            Open<span className="gradient-text">Stars</span>.ai
+                            Open<span className="gradient-text">Stars</span>
                         </span>
                     </motion.a>
 
@@ -50,7 +50,7 @@ const Footer = () => {
 
                 {/* Copyright */}
                 <div className="mt-10 pt-6 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
-                    <p>© {currentYear} OpenStars.ai — All rights reserved.</p>
+                    <p>© {currentYear} OpenStars — All rights reserved.</p>
                     <div className="flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                         <span>Superconnecting the future of AI</span>
