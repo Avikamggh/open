@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="shortcut icon" href="/Assets/images/favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://unpkg.com/aos@next/dist/aos.css" />
+  <title>Robotik 3D | VittelloCode</title>
+</head>
+<body>
+  <div class="layer-blur"></div>
+
+  <div class="container">
+    <header>
+      <div>
+        <h1 data-aos="fade-down" data-aos-duration="1500" class="header__logo">VP Code</h1>
+      </div>
+
+      <nav>
+        <a data-aos="fade-down" data-aos-duration="1500" href="https://www.linkedin.com/in/vitalii-povierienov-90647b212/" target="_blank">About Project</a>
+        <a data-aos="fade-down" data-aos-duration="2000" href="https://www.linkedin.com/in/vitalii-povierienov-90647b212/" target="_blank">Features</a>
+        <a data-aos="fade-down" data-aos-duration="2500" href="https://www.linkedin.com/in/vitalii-povierienov-90647b212/" target="_blank">Docs</a>
+        <a data-aos="fade-down" data-aos-duration="3000" href="https://www.linkedin.com/in/vitalii-povierienov-90647b212/" target="_blank">Contacts</a>
+      </nav>
+
+      <a
+        data-aos="fade-down"
+        data-aos-duration="1500"
+        class="signing-in"
+        href="https://www.linkedin.com/in/vitalii-povierienov-90647b212/"
+        target="_blank"
+      >Follow</a>
+    </header>
+
+    <main>
+      <section 
+        data-aos="fade-zoom-in"
+        data-aos-easing="ease-in-back"
+        data-aos-delay="300"
+        data-aos-offset="0"
+        class="content"
+      >
+        <div class="tag-box">
+          <div class="tag">INTRODUCING •</div>
+        </div>
+
+        <h2>EMAIL FOR <br />DEVELOPERS</h2>
+
+        <p class="description">
+          The best way to reach humans instead of spam folders — <br />
+          transactional and marketing emails at scale. <br />
+          Web-security defense included.
+        </p>
+
+        <div class="buttons">
+          <a class="btn-get-started" href="https://www.linkedin.com/in/vitalii-povierienov-90647b212/" target="_blank">Documentation &gt;</a>
+          <a class="btn-signing-main" href="https://www.linkedin.com/in/vitalii-povierienov-90647b212/" target="_blank">Get Started &gt;</a>
+        </div>
+      </section>
+    </main>
+
+    <spline-viewer
+      data-aos="fade-zoom-in"
+      data-aos-easing="ease-in-back"
+      data-aos-delay="300"
+      data-aos-offset="0"
+      class="robot-3d"
+      url="https://prod.spline.design/NwhgnWpycqigOSwY/scene.splinecode"
+      aria-label="3D Robot Viewer"
+    ></spline-viewer>
+  </div>
+
+  <script type="module" src="https://unpkg.com/@splinetool/viewer@1.10.71/build/spline-viewer.js"></script>
+  <script src="https://unpkg.com/aos@next/dist/aos.js"></script>
+  <script>
+    AOS.init();
+  </script>
+  <script src="main.js"></script>
+</body>
+</html>
